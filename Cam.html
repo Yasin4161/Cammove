@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>SENTINEL-CAM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --g:      #39ff7a;
+      --g-dim:  #1c4d30;
+      --g-dark: #081408;
+      --r:      #ff2244;
+      --r-dim:  #3d0a13;
+      --amber:  #ffb300;
+      --bg:     #050905;
+      --panel:  #090e09;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html, body { height:100%; height:-webkit-fill-available; }
+    body {
+      background: var(--bg);
+      color: var(--g);
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-height: 100dvh;
+    }
+
+    /* ── HEADER ── */
+    .hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid #101e12;
+      flex-shrink: 0;
+    }
+    .hdr-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 12px; font-weight: 900; letter-spacing: 4px;
+    }
+    .hdr-right { display:flex; align-items:center; gap:10px; }
+    .hdr-counter { font-size:9px; color: var(--amber); letter-spacing:1px; }
+    .hdr-time { font-size: 10px; color: var(--g-dim); letter-spacing: 1px; }
+
+    /* ── STATUS BAR ── */
+    .sbar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 14px;
+      background: var(--g-dark);
+      border-bottom: 1px solid #0d1a0f;
+      flex-shrink: 0;
+      font-size: 10px; letter-spacing: 2px;
+    }
+    .sdot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #162416; flex-shrink: 0;
+      transition: background .2s, box-shadow .2s;
+    }
+    .sdot.on    { background: var(--g);  box-shadow: 0 0 8px var(--g);  animation: pulse 1.4s ease-in-out infinite; }
+    .sdot.alert { background: var(--r);  box-shadow: 0 0 10px var(--r); animation: blink .25s step-end infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}  50%{opacity:.3} }
+    @keyframes blink { 0%,100%{opacity:1}  50%{opacity:0}  }
+    .stext { flex:1; transition: color .15s; }
+    .smot  { font-size:9px; color: var(--amber); min-width: 40px; text-align:right; }
+
+    /* ── CAMERA VIEW ── */
+    .cam-wrap {
+      position: relative;
+      flex: 1; min-height: 0;
+      background: #000;
+      overflow: hidden;
+    }
+    video { display: none; }
+    canvas { width:100%; height:100%; object-fit:contain; display:block; }
+
+    /* Decoration overlay */
+    .cam-deco {
+      position: absolute; inset: 0;
+      pointer-events: none;
+    }
+    .corner {
+      position: absolute;
+      width: 20px; height: 20px;
+      border-color: rgba(57,255,122,.55); border-style: solid;
+    }
+    .corner.tl { top:8px;    left:8px;   border-width: 2px 0 0 2px; }
+    .corner.tr { top:8px;    right:8px;  border-width: 2px 2px 0 0; }
+    .corner.bl { bottom:8px; left:8px;   border-width: 0 0 2px 2px; }
+    .corner.br { bottom:8px; right:8px;  border-width: 0 2px 2px 0; }
+    .scanlines {
+      position: absolute; inset: 0;
+      background: repeating-linear-gradient(
+        to bottom, transparent 0, transparent 3px,
+        rgba(0,0,0,.07) 3px, rgba(0,0,0,.07) 4px
+      );
+    }
+    .cam-lbl {
+      position: absolute; bottom: 10px; left: 12px;
+      font-size: 7px; letter-spacing: 2px;
+      color: rgba(57,255,122,.35);
+    }
+    .rec-badge {
+      position: absolute; top: 10px; left: 12px;
+      display: flex; align-items: center; gap: 4px;
+      font-size: 8px; letter-spacing: 2px;
+      color: var(--r); opacity: 0; transition: opacity .3s;
+    }
+    .rec-badge.on { opacity: 1; }
+    .rec-d {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--r); animation: blink 1s step-end infinite;
+    }
+
+    /* Start screen */
+    .start-scr {
+      position: absolute; inset: 0;
+      background: rgba(5,9,5,.94);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px;
+    }
+    .start-icon { font-size: 44px; }
+    .start-msg {
+      font-family: 'Orbitron', monospace;
+      font-size: 10px; letter-spacing: 4px; color: var(--g-dim);
+    }
+    .start-https {
+      font-size: 8px; letter-spacing: 1px;
+      color: #2a3a2a; max-width: 240px; text-align: center; line-height: 1.6;
+    }
+
+    /* ── LOG ── */
+    .log-line {
+      flex-shrink: 0;
+      padding: 5px 14px;
+      font-size: 9px; letter-spacing: 1px;
+      color: var(--g-dim);
+      background: var(--bg);
+      border-top: 1px solid #0c150d;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ev  { color: var(--amber); }
+    .err { color: var(--r); }
+
+    /* ── CONTROLS ── */
+    .ctrl {
+      flex-shrink: 0;
+      padding: 10px 14px 14px;
+      background: var(--panel);
+      border-top: 1px solid #101e12;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+    .ctrl-row { display: flex; align-items: center; gap: 10px; }
+    .ctrl-lbl {
+      font-size: 8px; letter-spacing: 2px; color: var(--g-dim);
+      width: 76px; flex-shrink: 0;
+    }
+    input[type=range] {
+      flex: 1; -webkit-appearance: none;
+      height: 2px; background: #0d1e10;
+      border-radius: 1px; outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: var(--g); box-shadow: 0 0 6px var(--g); cursor: pointer;
+    }
+    .ctrl-val { font-size: 10px; width: 26px; text-align: right; color: var(--g); }
+    .btn-row { display: flex; gap: 8px; }
+    .btn {
+      flex: 1; padding: 10px 4px;
+      background: transparent; border: 1px solid;
+      font-family: 'Orbitron', monospace;
+      font-size: 9px; font-weight: 700; letter-spacing: 2px;
+      cursor: pointer; transition: all .12s;
+    }
+    .btn:active { transform: scale(.96); }
+
+    .btn-start {
+      color: var(--g); border-color: var(--g);
+      background: var(--g-dark);
+    }
+    .btn-start:active, .btn-start.running {
+      background: var(--g); color: var(--bg);
+      box-shadow: 0 0 14px rgba(57,255,122,.35);
+    }
+    .btn-stop  { color: #ff5566; border-color: var(--r-dim); }
+    .btn-stop:active { background: var(--r-dim); }
+    .btn-cam {
+      flex: .65;
+      color: #448866; border-color: #183020;
+      font-size: 8px;
+    }
+    .btn-cam:active { background: #0e2018; }
+
+    /* ── GLOBAL ALERT FLASH ── */
+    #flash {
+      position: fixed; inset: 0;
+      background: rgba(255,34,68,.14);
+      pointer-events: none; opacity: 0; z-index: 99;
+    }
+    @keyframes flashOut { 0%{opacity:1} 100%{opacity:0} }
+    #flash.pop { animation: flashOut .35s ease-out forwards; }
+  </style>
+</head>
+<body>
+
+<div id="flash"></div>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-title">SENTINEL-CAM</div>
+  <div class="hdr-right">
+    <div class="hdr-counter" id="alertCount"></div>
+    <div class="hdr-time" id="hdrTime">--:--:--</div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="sbar">
+  <div class="sdot" id="sdot"></div>
+  <div class="stext" id="stext">HAZIR DEĞİL</div>
+  <div class="smot" id="smot"></div>
+</div>
+
+<!-- CAMERA FEED -->
+<div class="cam-wrap" id="camWrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div class="cam-deco">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="scanlines"></div>
+    <div class="cam-lbl">CAM-01 // PIKSELİ KARŞILAŞTIRMA // HAREKET ALGILAMA MOD</div>
+    <div class="rec-badge" id="recBadge">
+      <div class="rec-d"></div>AKTİF
+    </div>
+  </div>
+
+  <div class="start-scr" id="startScr">
+    <div class="start-icon">📡</div>
+    <div class="start-msg">KAMERAYI BAŞLAT</div>
+    <div class="start-https">HTTPS gereklidir.<br>Tarayıcı izni için onay gerekebilir.</div>
+  </div>
+</div>
+
+<!-- LOG LINE -->
+<div class="log-line" id="logLine">&gt; SİSTEM HAZIR. BAŞLATMAK İÇİN BUTONA BAS.</div>
+
+<!-- CONTROLS -->
+<div class="ctrl">
+  <div class="ctrl-row">
+    <div class="ctrl-lbl">HASSASIYET</div>
+    <input type="range" id="senSlider" min="1" max="100" value="40">
+    <div class="ctrl-val" id="senVal">40</div>
+  </div>
+  <div class="ctrl-row">
+    <div class="ctrl-lbl">SES SEVİYESİ</div>
+    <input type="range" id="volSlider" min="0" max="100" value="75">
+    <div class="ctrl-val" id="volVal">75</div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-start" id="startBtn">▶ BAŞLAT</button>
+    <button class="btn btn-stop"  id="stopBtn">■ DURDUR</button>
+    <button class="btn btn-cam"   id="camBtn">🔄 KAMERA</button>
+  </div>
+</div>
+
+<script>
+/* ─── ELEMENT REFS ─── */
+const video      = document.getElementById('video');
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d', { willReadFrequently: true });
+const startScr   = document.getElementById('startScr');
+const sdot       = document.getElementById('sdot');
+const stext      = document.getElementById('stext');
+const smot       = document.getElementById('smot');
+const recBadge   = document.getElementById('recBadge');
+const logLine    = document.getElementById('logLine');
+const flash      = document.getElementById('flash');
+const hdrTime    = document.getElementById('hdrTime');
+const alertCount = document.getElementById('alertCount');
+const senSlider  = document.getElementById('senSlider');
+const senVal     = document.getElementById('senVal');
+const volSlider  = document.getElementById('volSlider');
+const volVal     = document.getElementById('volVal');
+const startBtn   = document.getElementById('startBtn');
+const stopBtn    = document.getElementById('stopBtn');
+const camBtn     = document.getElementById('camBtn');
+
+/* ─── PROCESSING CANVAS (low-res for speed) ─── */
+const PROC_W = 160, PROC_H = 120;
+const pc   = document.createElement('canvas');
+pc.width = PROC_W; pc.height = PROC_H;
+const pctx = pc.getContext('2d', { willReadFrequently: true });
+
+/* ─── STATE ─── */
+const GW = 16, GH = 12;            // motion grid dimensions
+let prevData        = null;
+let animId          = null;
+let running         = false;
+let audioCtx        = null;
+let alertCooldown   = false;
+let statusResetTmr  = null;
+let facingMode      = 'environment';
+let alertsTotal     = 0;
+
+/* ─── CLOCK ─── */
+setInterval(() => {
+  hdrTime.textContent = new Date().toLocaleTimeString('tr-TR', { hour12: false });
+}, 500);
+
+/* ─── SLIDER SYNC ─── */
+senSlider.oninput = () => senVal.textContent = senSlider.value;
+volSlider.oninput = () => volVal.textContent = volSlider.value;
+
+/* ─── AUDIO ─── */
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playBeep() {
+  if (!audioCtx || alertCooldown) return;
+  const vol = parseInt(volSlider.value) / 100;
+  if (vol === 0) return;
+  alertCooldown = true;
+  setTimeout(() => alertCooldown = false, 1800);
+
+  const beep = (freq, startT, dur) => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'square';
+    o.frequency.value = freq;
+    const t0 = audioCtx.currentTime + startT;
+    g.gain.setValueAtTime(vol * 0.35, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.start(t0); o.stop(t0 + dur);
+  };
+  beep(1200, 0,    0.09);
+  beep(900,  0.13, 0.11);
+}
+
+/* ─── VISUAL ALERTS ─── */
+function triggerFlash() {
+  flash.classList.remove('pop');
+  void flash.offsetWidth;
+  flash.classList.add('pop');
+}
+
+/* ─── STATUS ─── */
+function setStatus(mode) {
+  clearTimeout(statusResetTmr);
+  sdot.className = 'sdot';
+  if (mode === 'armed') {
+    sdot.classList.add('on');
+    stext.textContent  = 'SİLAHLI — HAREKET BEKLENIYOR';
+    stext.style.color  = 'var(--g)';
+  } else if (mode === 'alert') {
+    sdot.classList.add('alert');
+    stext.textContent  = '!! HAREKET ALGILANDI !!';
+    stext.style.color  = 'var(--r)';
+    statusResetTmr = setTimeout(() => { if (running) setStatus('armed'); }, 2000);
+  } else {
+    stext.textContent  = 'BEKLEME MODUNDA';
+    stext.style.color  = 'var(--g-dim)';
+    smot.textContent   = '';
+  }
+}
+
+/* ─── LOG ─── */
+function setLog(msg, cls = '') {
+  const t = new Date().toLocaleTimeString('tr-TR', { hour12: false });
+  logLine.innerHTML = `&gt; [${t}] <span class="${cls}">${msg}</span>`;
+}
+
+/* ─── CANVAS SIZING ─── */
+function resizeCanvas() {
+  canvas.width  = canvas.parentElement.offsetWidth;
+  canvas.height = canvas.parentElement.offsetHeight;
+}
+
+/* ─── CAMERA START ─── */
+async function startCamera() {
+  ensureAudio();
+  try {
+    if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    resizeCanvas();
+    prevData = null;
+    running  = true;
+
+    startScr.style.display = 'none';
+    recBadge.classList.add('on');
+    startBtn.classList.add('running');
+    startBtn.textContent = '● ÇALIŞIYOR';
+
+    setStatus('armed');
+    setLog('KAMERA AKTİF — HAREKET TARAMASI BAŞLADI.', 'ev');
+    detectLoop();
+
+  } catch (err) {
+    let msg = err.message;
+    if (err.name === 'NotAllowedError') msg = 'KAMERA İZNİ REDDEDİLDİ.';
+    if (err.name === 'NotFoundError')   msg = 'KAMERA BULUNAMADI.';
+    setLog('HATA: ' + msg, 'err');
+  }
+}
+
+/* ─── CAMERA STOP ─── */
+function stopCamera() {
+  running = false;
+  if (animId) { cancelAnimationFrame(animId); animId = null; }
+  if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+
+  prevData = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  startScr.style.display = '';
+  recBadge.classList.remove('on');
+  startBtn.classList.remove('running');
+  startBtn.textContent = '▶ BAŞLAT';
+
+  setStatus('standby');
+  setLog('KAMERA DURDURULDU.');
+}
+
+/* ─── DRAW HELPERS ─── */
+function drawBoundingBox(bx, by, bw, bh, label) {
+  const T = 14; // corner tick size
+  const x0 = bx, y0 = by, x1 = bx + bw, y1 = by + bh;
+
+  // Filled glow rect
+  ctx.save();
+  ctx.shadowBlur   = 18;
+  ctx.shadowColor  = 'rgba(255,34,68,.85)';
+  ctx.strokeStyle  = '#ff2244';
+  ctx.lineWidth    = 2;
+  ctx.strokeRect(x0, y0, bw, bh);
+  ctx.restore();
+
+  // Corner ticks (brighter inner brackets)
+  ctx.save();
+  ctx.strokeStyle = '#ff6677';
+  ctx.lineWidth   = 2.5;
+  ctx.beginPath();
+  // TL
+  ctx.moveTo(x0, y0+T); ctx.lineTo(x0, y0); ctx.lineTo(x0+T, y0);
+  // TR
+  ctx.moveTo(x1-T, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0+T);
+  // BL
+  ctx.moveTo(x0, y1-T); ctx.lineTo(x0, y1); ctx.lineTo(x0+T, y1);
+  // BR
+  ctx.moveTo(x1-T, y1); ctx.lineTo(x1, y1); ctx.lineTo(x1, y1-T);
+  ctx.stroke();
+  ctx.restore();
+
+  // Label tag
+  if (label) {
+    ctx.save();
+    const pad = 5;
+    ctx.font = "bold 10px 'Share Tech Mono', monospace";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(255,34,68,.85)';
+    ctx.fillRect(x0 - 1, y0 - 16, tw + pad * 2, 14);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, x0 + pad - 1, y0 - 5);
+    ctx.restore();
+  }
+}
+
+/* ─── MAIN DETECTION LOOP ─── */
+function detectLoop() {
+  if (!running) return;
+
+  if (video.readyState >= 2) {
+    /* 1 – grab low-res frame */
+    pctx.drawImage(video, 0, 0, PROC_W, PROC_H);
+    const curr = pctx.getImageData(0, 0, PROC_W, PROC_H);
+
+    /* 2 – draw full-res frame on display canvas */
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    if (prevData) {
+      /* ── SENSITIVITY PARAMS ── */
+      const sen       = parseInt(senSlider.value);
+      // pixThresh: how much a pixel must change to count (lower = more sensitive)
+      const pixThresh = Math.round(80 - (sen - 1) / 99 * 68);   // 80→12
+      // minRatio: fraction of all pixels that must move to trigger alarm
+      const minRatio  = 0.028 - (sen - 1) / 99 * 0.025;         // 0.028→0.003
+
+      /* ── PIXEL DIFF + GRID ACCUMULATION ── */
+      const cellW   = PROC_W / GW;
+      const cellH   = PROC_H / GH;
+      const ppc     = cellW * cellH;          // pixels per grid cell
+      const gridMot = new Float32Array(GW * GH);
+      let   totalMot = 0;
+
+      const cd = curr.data, pd = prevData;
+      for (let i = 0, n = PROC_W * PROC_H; i < n; i++) {
+        const pi = i << 2;
+        const diff = (
+          Math.abs(cd[pi]   - pd[pi])   +
+          Math.abs(cd[pi+1] - pd[pi+1]) +
+          Math.abs(cd[pi+2] - pd[pi+2])
+        ) * 0.3333;
+
+        if (diff > pixThresh) {
+          totalMot++;
+          const x = i % PROC_W;
+          const y = (i / PROC_W) | 0;
+          gridMot[((y / cellH) | 0) * GW + ((x / cellW) | 0)]++;
+        }
+      }
+
+      /* ── MOTION PERCENTAGE ── */
+      const motRatio = totalMot / (PROC_W * PROC_H);
+      const pct      = Math.round(motRatio * 100);
+      smot.textContent = motRatio > 0.001 ? `${pct}%` : '';
+
+      /* ── DRAW MOTION OVERLAY if above threshold ── */
+      if (motRatio > minRatio) {
+        const sX = canvas.width  / PROC_W;
+        const sY = canvas.height / PROC_H;
+        const cellThresh = 0.08;    // 8% of a cell's pixels must move to highlight it
+
+        let minGX = GW, maxGX = -1, minGY = GH, maxGY = -1;
+
+        for (let gy = 0; gy < GH; gy++) {
+          for (let gx = 0; gx < GW; gx++) {
+            const ratio = gridMot[gy * GW + gx] / ppc;
+            if (ratio > cellThresh) {
+              if (gx < minGX) minGX = gx;
+              if (gx > maxGX) maxGX = gx;
+              if (gy < minGY) minGY = gy;
+              if (gy > maxGY) maxGY = gy;
+
+              const alpha = Math.min(0.1 + ratio * 0.75, 0.58);
+              ctx.fillStyle = `rgba(255,34,68,${alpha.toFixed(2)})`;
+              ctx.fillRect(
+                gx * cellW * sX, gy * cellH * sY,
+                cellW * sX + .5, cellH * sY + .5
+              );
+            }
+          }
+        }
+
+        if (maxGX >= 0) {
+          const PAD = 7;
+          const bx = minGX * cellW * sX - PAD;
+          const by = minGY * cellH * sY - PAD;
+          const bw = (maxGX - minGX + 1) * cellW * sX + PAD * 2;
+          const bh = (maxGY - minGY + 1) * cellH * sY + PAD * 2;
+          drawBoundingBox(bx, by, bw, bh, `⚠ HAREKET [${pct}%]`);
+        }
+
+        /* ── ALERT ── */
+        setStatus('alert');
+        playBeep();
+        triggerFlash();
+
+        if (!alertCooldown || alertsTotal === 0) {
+          alertsTotal++;
+          alertCount.textContent = `UYARI: ${alertsTotal}`;
+          setLog(`HAREKET ALGILANDI — %${pct} piksel değişimi.`, 'ev');
+        }
+      }
+    }
+
+    /* ── STORE FRAME ── */
+    prevData = curr.data.slice();
+  }
+
+  animId = requestAnimationFrame(detectLoop);
+}
+
+/* ─── BUTTON HANDLERS ─── */
+startBtn.onclick = () => { if (!running) startCamera(); };
+stopBtn.onclick  = () => { if (running)  stopCamera();  };
+camBtn.onclick   = () => {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  if (running) startCamera();
+};
+
+/* ─── RESIZE ─── */
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  prevData = null; // reset after resize (frame size changed)
+});
+setTimeout(resizeCanvas, 80);
+</script>
+</body>
+</html>
